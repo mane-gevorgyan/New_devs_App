@@ -2,6 +2,65 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Any, List
 
+async def calculate_revenue_by_date_range(tenant_id: str, start_date: str, end_date: str) -> Dict[str, Any]:
+    """
+    Calculates revenue for a date range using property-local timezone.
+    Reservations are attributed to the date in the property's timezone (Client A March fix).
+    Example: check_in 2024-02-29 23:30 UTC = March 1 00:30 in Paris - counts in March.
+    """
+    try:
+        from app.core.database_pool import DatabasePool
+
+        db_pool = DatabasePool()
+        await db_pool.initialize()
+
+        if db_pool.session_factory:
+            async with db_pool.get_session() as session:
+                from sqlalchemy import text
+
+                query = text("""
+                    SELECT 
+                        r.property_id,
+                        SUM(r.total_amount) as total
+                    FROM reservations r
+                    JOIN properties p ON r.property_id = p.id AND r.tenant_id = p.tenant_id
+                    WHERE r.tenant_id = :tenant_id
+                    AND (r.check_in_date AT TIME ZONE COALESCE(p.timezone, 'UTC'))::date >= :start_date::date
+                    AND (r.check_in_date AT TIME ZONE COALESCE(p.timezone, 'UTC'))::date < :end_date::date
+                    GROUP BY r.property_id
+                """)
+                result = await session.execute(query, {
+                    "tenant_id": tenant_id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                })
+                rows = result.fetchall()
+
+                by_property = [
+                    {"property_id": row.property_id, "total": str(Decimal(str(row.total)))}
+                    for row in rows
+                ]
+                total = sum(Decimal(p["total"]) for p in by_property)
+
+                return {
+                    "tenant_id": tenant_id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "total": str(total),
+                    "currency": "USD",
+                    "by_property": by_property,
+                }
+    except Exception as e:
+        print(f"calculate_revenue_by_date_range error: {e}")
+        return {
+            "tenant_id": tenant_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total": "0",
+            "currency": "USD",
+            "by_property": [],
+        }
+
 async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_session=None) -> Decimal:
     """
     Calculates revenue for a specific month.

@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { RevenueSummary } from "./RevenueSummary";
+import { SecureAPI } from "../lib/secureApi";
 
 const PROPERTIES = [
   { id: 'prop-001', name: 'Beach House Alpha' },
@@ -11,6 +12,19 @@ const PROPERTIES = [
 
 const Dashboard: React.FC = () => {
   const [selectedProperty, setSelectedProperty] = useState('prop-001');
+  const [marchRevenue, setMarchRevenue] = useState<{ total_revenue: number; error?: string } | null>(null);
+
+  useEffect(() => {
+    const fetchMarchRevenue = async () => {
+      try {
+        const data = await SecureAPI.getRevenueReport('2024-03-01', '2024-04-01');
+        setMarchRevenue({ total_revenue: data?.total_revenue ?? 0 });
+      } catch (err) {
+        setMarchRevenue({ total_revenue: 0, error: `Failed to load March report, ${err}`, });
+      }
+    };
+    fetchMarchRevenue();
+  }, []);
 
   return (
     <div className="p-4 lg:p-6 min-h-full">
@@ -46,6 +60,17 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="space-y-6">
+            {marchRevenue && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="text-sm font-medium text-blue-800 mb-1">March 2024 Revenue (Timezone-aware)</h3>
+                <p className="text-2xl font-bold text-blue-900">
+                  {marchRevenue.error ? marchRevenue.error : (
+                    <>USD {marchRevenue.total_revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                  )}
+                </p>
+                <p className="text-xs text-blue-600 mt-1">Uses property-local timezone (e.g. Paris) so res-tz-1 counts in March</p>
+              </div>
+            )}
             <RevenueSummary propertyId={selectedProperty} />
           </div>
         </div>
